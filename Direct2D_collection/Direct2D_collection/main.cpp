@@ -11,7 +11,7 @@
 #include <algorithm>
 
 #include <Windows.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_4.h>
 #include <d2d1.h>
 #include <d2d1_1.h>
@@ -35,13 +35,13 @@ static D3D_FEATURE_LEVEL s_maxFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 
 static ID2D1Factory1* s_d2dFactory = nullptr;
 static IDXGIFactory4* s_factory = nullptr;
-static ID3D11Device* s_d3d11Device = nullptr;
+static ID3D11Device1* s_d3d11Device = nullptr;
 static ID3D11DeviceContext* s_d3d11DeviceContext = nullptr;
 static IDXGIDevice* s_dxgiDevice = nullptr;
 static ID2D1Device* s_d2d1Device = nullptr;
 static ID2D1DeviceContext* s_d2d1Context = nullptr;
 static IDXGISwapChain3* s_swapChain = nullptr;
-static ID3D11RasterizerState* s_rasterizerState = nullptr;
+static ID3D11RasterizerState1* s_rasterizerState = nullptr;
 static IDXGISurface* s_dxgiBackBuffer = nullptr;
 static ID2D1Bitmap1* s_d2dTargetBitmap = nullptr;
 static ID2D1SolidColorBrush* s_solidColorBrush = nullptr;
@@ -144,7 +144,7 @@ static auto CreateD2D1DeviceAndContext() -> bool
 #if _DEBUG
         | D3D11_CREATE_DEVICE_DEBUG
 #endif
-        , featureLevels, (UINT)std::size(featureLevels), D3D11_SDK_VERSION, &s_d3d11Device, &retFeatureLevel, & s_d3d11DeviceContext);
+        , featureLevels, (UINT)std::size(featureLevels), D3D11_SDK_VERSION, (ID3D11Device**)& s_d3d11Device, & retFeatureLevel, & s_d3d11DeviceContext);
     if (FAILED(hRes))
     {
         fprintf(stderr, "D3D11CreateDevice failed: %ld\n", hRes);
@@ -178,6 +178,12 @@ static auto CreateD2D1DeviceAndContext() -> bool
         break;
     }
     printf("Current device support: %s\n", featureStr);
+
+    if (retFeatureLevel < D3D_FEATURE_LEVEL_11_1)
+    {
+        fprintf(stderr, "Current device does not support D3D Feature Level 11.1 so that ForcedSampleCount cannot be tested!!\n");
+        return false;
+    }
 
     puts("\n================================================\n");
 
@@ -240,7 +246,7 @@ static auto CreateSwapChain(HWND hWnd) -> bool
 
 static auto CreateRasterizerStateObject() -> bool
 {
-    const D3D11_RASTERIZER_DESC raterizerDesc{
+    const D3D11_RASTERIZER_DESC1 raterizerDesc{
         .FillMode = D3D11_FILL_SOLID,
         .CullMode = D3D11_CULL_BACK,
         .FrontCounterClockwise = FALSE,
@@ -250,9 +256,10 @@ static auto CreateRasterizerStateObject() -> bool
         .DepthClipEnable = FALSE,
         .ScissorEnable = TRUE,
         .MultisampleEnable = FALSE,
-        .AntialiasedLineEnable = FALSE
+        .AntialiasedLineEnable = FALSE,
+        .ForcedSampleCount = 4U
     };
-    HRESULT hRes = s_d3d11Device->CreateRasterizerState(&raterizerDesc, &s_rasterizerState);
+    HRESULT hRes = s_d3d11Device->CreateRasterizerState1(&raterizerDesc, &s_rasterizerState);
     if (FAILED(hRes))
     {
         fprintf(stderr, "CreateRasterizerState failed: %ld\n", hRes);
