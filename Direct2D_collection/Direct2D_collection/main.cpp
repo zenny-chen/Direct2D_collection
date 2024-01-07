@@ -36,10 +36,12 @@ static D3D_FEATURE_LEVEL s_maxFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 static ID2D1Factory1* s_d2dFactory = nullptr;
 static IDXGIFactory4* s_factory = nullptr;
 static ID3D11Device* s_d3d11Device = nullptr;
+static ID3D11DeviceContext* s_d3d11DeviceContext = nullptr;
 static IDXGIDevice* s_dxgiDevice = nullptr;
 static ID2D1Device* s_d2d1Device = nullptr;
 static ID2D1DeviceContext* s_d2d1Context = nullptr;
 static IDXGISwapChain3* s_swapChain = nullptr;
+static ID3D11RasterizerState* s_rasterizerState = nullptr;
 static IDXGISurface* s_dxgiBackBuffer = nullptr;
 static ID2D1Bitmap1* s_d2dTargetBitmap = nullptr;
 static ID2D1SolidColorBrush* s_solidColorBrush = nullptr;
@@ -142,7 +144,7 @@ static auto CreateD2D1DeviceAndContext() -> bool
 #if _DEBUG
         | D3D11_CREATE_DEVICE_DEBUG
 #endif
-        , featureLevels, (UINT)std::size(featureLevels), D3D11_SDK_VERSION, &s_d3d11Device, &retFeatureLevel, nullptr);
+        , featureLevels, (UINT)std::size(featureLevels), D3D11_SDK_VERSION, &s_d3d11Device, &retFeatureLevel, & s_d3d11DeviceContext);
     if (FAILED(hRes))
     {
         fprintf(stderr, "D3D11CreateDevice failed: %ld\n", hRes);
@@ -232,6 +234,42 @@ static auto CreateSwapChain(HWND hWnd) -> bool
     }
 
     s_swapChain = (IDXGISwapChain3*)swapChain;
+
+    return true;
+}
+
+static auto CreateRasterizerStateObject() -> bool
+{
+    const D3D11_RASTERIZER_DESC raterizerDesc{
+        .FillMode = D3D11_FILL_SOLID,
+        .CullMode = D3D11_CULL_BACK,
+        .FrontCounterClockwise = FALSE,
+        .DepthBias = 0,
+        .DepthBiasClamp = 0.0f,
+        .SlopeScaledDepthBias = 0.0f,
+        .DepthClipEnable = FALSE,
+        .ScissorEnable = TRUE,
+        .MultisampleEnable = FALSE,
+        .AntialiasedLineEnable = FALSE
+    };
+    HRESULT hRes = s_d3d11Device->CreateRasterizerState(&raterizerDesc, &s_rasterizerState);
+    if (FAILED(hRes))
+    {
+        fprintf(stderr, "CreateRasterizerState failed: %ld\n", hRes);
+        return false;
+    }
+
+    s_d3d11DeviceContext->RSSetState(s_rasterizerState);
+
+    const D3D11_RECT scissorRects[]{
+        {
+            .left = 0,
+            .top = 0,
+            .right = WINDOW_WIDTH,
+            .bottom = WINDOW_HEIGHT
+        }
+    };
+    s_d3d11DeviceContext->RSSetScissorRects((UINT)std::size(scissorRects), scissorRects);
 
     return true;
 }
@@ -333,6 +371,11 @@ static auto DestroyAllResources() -> void
         s_d2dTargetBitmap->Release();
         s_d2dTargetBitmap = nullptr;
     }
+    if (s_rasterizerState != nullptr)
+    {
+        s_rasterizerState->Release();
+        s_rasterizerState = nullptr;
+    }
     if (s_swapChain != nullptr)
     {
         s_swapChain->Release();
@@ -342,6 +385,11 @@ static auto DestroyAllResources() -> void
     {
         s_d2d1Context->Release();
         s_d2d1Context = nullptr;
+    }
+    if (s_d3d11DeviceContext != nullptr)
+    {
+        s_d3d11DeviceContext->Release();
+        s_d3d11DeviceContext = nullptr;
     }
     if (s_d3d11Device != nullptr)
     {
@@ -523,6 +571,7 @@ auto main() -> int
         wndHandle = CreateAndInitializeWindow(wndInstance, "Direct2D Collection", WINDOW_WIDTH, WINDOW_HEIGHT);
 
         if (!CreateSwapChain(wndHandle)) break;
+        if (!CreateRasterizerStateObject()) break;
         if (!CreateBitmapFromSurface()) break;
         if (!CreateSolidBrush()) break;
 
