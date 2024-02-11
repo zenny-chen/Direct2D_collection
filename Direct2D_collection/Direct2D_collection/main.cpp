@@ -52,8 +52,8 @@ static auto TransWStrToString(char dstBuf[], const WCHAR srcBuf[]) -> void
 {
     if (dstBuf == nullptr || srcBuf == nullptr) return;
 
-    const int len = WideCharToMultiByte(CP_UTF8, 0, srcBuf, -1, NULL, 0, NULL, NULL);
-    WideCharToMultiByte(CP_UTF8, 0, srcBuf, -1, dstBuf, len, NULL, NULL);
+    const int len = WideCharToMultiByte(CP_UTF8, 0, srcBuf, -1, nullptr, 0, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, srcBuf, -1, dstBuf, len, nullptr, nullptr);
     dstBuf[len] = '\0';
 }
 
@@ -515,12 +515,12 @@ static auto CreateAndInitializeWindow(HINSTANCE hInstance, LPCSTR appName, int w
     win_class.cbClsExtra = 0;
     win_class.cbWndExtra = 0;
     win_class.hInstance = hInstance;
-    win_class.hIcon = LoadIconA(NULL, IDI_APPLICATION);
-    win_class.hCursor = LoadCursorA(NULL, IDC_ARROW);
+    win_class.hIcon = LoadIconA(nullptr, IDI_APPLICATION);
+    win_class.hCursor = LoadCursorA(nullptr, IDC_ARROW);
     win_class.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    win_class.lpszMenuName = NULL;
+    win_class.lpszMenuName = nullptr;
     win_class.lpszClassName = appName;
-    win_class.hIconSm = LoadIconA(NULL, IDI_WINLOGO);
+    win_class.hIconSm = LoadIconA(nullptr, IDI_WINLOGO);
     // Register window class:
     if (!RegisterClassExA(&win_class))
     {
@@ -543,12 +543,12 @@ static auto CreateAndInitializeWindow(HINSTANCE hInstance, LPCSTR appName, int w
         CW_USEDEFAULT, CW_USEDEFAULT,     // x, y coords
         windowWidth,                    // width
         windowHeight,                  // height
-        NULL,                        // handle to parent
-        NULL,                            // handle to menu
+        nullptr,                        // handle to parent
+        nullptr,                            // handle to menu
         hInstance,                            // hInstance
-        NULL);
+        nullptr);
 
-    if (hWnd == NULL) {
+    if (hWnd == nullptr) {
         // It didn't work, so try to give a useful error:
         puts("Cannot create a window in which to draw!");
     }
@@ -572,7 +572,7 @@ auto main() -> int
         if (!CreateD2D1DeviceAndContext()) break;
 
         // Windows Instance
-        wndInstance = GetModuleHandleA(NULL);
+        wndInstance = GetModuleHandleA(nullptr);
 
         // window handle
         wndHandle = CreateAndInitializeWindow(wndInstance, "Direct2D Collection", WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -593,7 +593,7 @@ auto main() -> int
         bool done = false;
         while (!done)
         {
-            PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE);
+            PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE);
             // check for a quit message
             if (msg.message == WM_QUIT) {
                 done = true;  // if found, quit app
@@ -604,14 +604,14 @@ auto main() -> int
                 TranslateMessage(&msg);
                 DispatchMessageA(&msg);
             }
-            RedrawWindow(wndHandle, NULL, NULL, RDW_INTERNALPAINT);
+            RedrawWindow(wndHandle, nullptr, nullptr, RDW_INTERNALPAINT);
         }
     }
 
-    if (wndHandle != NULL)
+    if (wndHandle != nullptr)
     {
         DestroyWindow(wndHandle);
-        wndHandle = NULL;
+        wndHandle = nullptr;
     }
     
     DestroyAllResources();
