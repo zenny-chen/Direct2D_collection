@@ -14,26 +14,34 @@
 #include <d3d11_1.h>
 #include <dxgi1_4.h>
 #include <d2d1.h>
-#include <d2d1_1.h>
+#include <d2d1_3.h>
+#include <d2d1effects_2.h>
+#include <d2d1effectauthor.h>
 
 // Maximum hardware adapter count
 static constexpr UINT MAX_HARDWARE_ADAPTER_COUNT = 16U;
 
+static constexpr int WINDOW_SIZE_SCALE = 1;
+
 // Window Width
-static constexpr int WINDOW_WIDTH = 512;
+static constexpr int WINDOW_WIDTH = 512 * WINDOW_SIZE_SCALE;
 
 // Window Height
-static constexpr int WINDOW_HEIGHT = 512;
+static constexpr int WINDOW_HEIGHT = 512 * WINDOW_SIZE_SCALE;
 
 // Default swap-chain buffer and render target buffer format
 static constexpr DXGI_FORMAT RENDER_TARGET_BUFFER_FOMRAT = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+//static constexpr GUID CLSID_MyPixelShaderEffect { 0xbabec0deUL, 0xbeefU, 0xfaceU, { 0x12U, 0x34U, 0x56U, 0x78U, 0x9aU, 0xbcU, 0xdeU, 0xf0U } };
+static constexpr GUID CLSID_MyPixelShaderEffect{ 0x0000'0000UL, 0x0000U, 0x0000U, { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U } };
+
 
 // Swap-chain back-buffer count
 static UINT SWAPCHAIN_BACK_BUFFER_COUNT = 3U;
 
 static D3D_FEATURE_LEVEL s_maxFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 
-static ID2D1Factory1* s_d2dFactory = nullptr;
+static ID2D1Factory1* s_d2d1Factory = nullptr;
 static IDXGIFactory4* s_factory = nullptr;
 static ID3D11Device1* s_d3d11Device = nullptr;
 static ID3D11DeviceContext* s_d3d11DeviceContext = nullptr;
@@ -44,7 +52,9 @@ static IDXGISwapChain3* s_swapChain = nullptr;
 static ID3D11RasterizerState1* s_rasterizerState = nullptr;
 static IDXGISurface* s_dxgiBackBuffer = nullptr;
 static ID2D1Bitmap1* s_d2dTargetBitmap = nullptr;
+static ID2D1Effect* s_myPixelShaderEffect = nullptr;
 static ID2D1SolidColorBrush* s_solidColorBrush = nullptr;
+static ID2D1PathGeometry1* s_pathTriangle = nullptr;
 
 static POINT s_wndMinsize {};
 
@@ -57,6 +67,30 @@ static auto TransWStrToString(char dstBuf[], const WCHAR srcBuf[]) -> void
     dstBuf[len] = '\0';
 }
 
+static auto CALLBACK MyPixelShaderSetPropertyIntensity(
+                                                _In_ IUnknown* effect,
+                                                _In_reads_(dataSize) const BYTE* data,
+                                                UINT32 dataSize
+                                                ) -> HRESULT
+{
+    return S_OK;
+}
+
+static auto CALLBACK MyPixelShaderGetPropertyIntensity(
+                                                _In_ const IUnknown* effect,
+                                                _Out_writes_opt_(dataSize) BYTE* data,
+                                                UINT32 dataSize,
+                                                _Out_opt_ UINT32* actualSize
+                                                ) -> HRESULT
+{
+    return S_OK;
+}
+
+static auto CALLBACK MyPixelShaderEffectFactory(_Outptr_ IUnknown** effectImpl) -> HRESULT
+{
+    return S_OK;
+}
+
 static auto CreateD2D1DeviceAndContext() -> bool
 {
     const D2D1_FACTORY_OPTIONS options{
@@ -66,7 +100,7 @@ static auto CreateD2D1DeviceAndContext() -> bool
         .debugLevel = D2D1_DEBUG_LEVEL_ERROR
 #endif
     };
-    HRESULT hRes = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, IID_ID2D1Factory1, &options, (void**)&s_d2dFactory);
+    HRESULT hRes = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, IID_ID2D1Factory1, &options, (void**)&s_d2d1Factory);
     if (FAILED(hRes))
     {
         fprintf(stderr, "D2D1CreateFactory failed: %ld\n", hRes);
@@ -139,7 +173,7 @@ static auto CreateD2D1DeviceAndContext() -> bool
         D3D_FEATURE_LEVEL_9_3
     };
 
-    D3D_FEATURE_LEVEL retFeatureLevel = D3D_FEATURE_LEVEL_11_0;
+    D3D_FEATURE_LEVEL retFeatureLevel = D3D_FEATURE_LEVEL_11_1;
     hRes = D3D11CreateDevice(hardwareAdapters[selectedAdapterIndex], D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVICE_BGRA_SUPPORT
 #if _DEBUG
         | D3D11_CREATE_DEVICE_DEBUG
@@ -196,12 +230,7 @@ static auto CreateD2D1DeviceAndContext() -> bool
     }
 
     // ======== Create Direct2D Device ========
-    hRes = s_d2dFactory->CreateDevice(s_dxgiDevice, &s_d2d1Device);
-    if (FAILED(hRes))
-    {
-        fprintf(stderr, "s_d2dFactory->CreateDevice failed: %ld\n", hRes);
-        return false;
-    }
+    hRes = s_d2d1Factory->CreateDevice(s_dxgiDevice, &s_d2d1Device);
 
     // ======== Create D2D1 device context ========
     hRes = s_d2d1Device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &s_d2d1Context);
@@ -244,43 +273,6 @@ static auto CreateSwapChain(HWND hWnd) -> bool
     return true;
 }
 
-static auto CreateRasterizerStateObject() -> bool
-{
-    const D3D11_RASTERIZER_DESC1 raterizerDesc{
-        .FillMode = D3D11_FILL_SOLID,
-        .CullMode = D3D11_CULL_BACK,
-        .FrontCounterClockwise = FALSE,
-        .DepthBias = 0,
-        .DepthBiasClamp = 0.0f,
-        .SlopeScaledDepthBias = 0.0f,
-        .DepthClipEnable = FALSE,
-        .ScissorEnable = TRUE,
-        .MultisampleEnable = FALSE,
-        .AntialiasedLineEnable = FALSE,
-        .ForcedSampleCount = 4U
-    };
-    HRESULT hRes = s_d3d11Device->CreateRasterizerState1(&raterizerDesc, &s_rasterizerState);
-    if (FAILED(hRes))
-    {
-        fprintf(stderr, "CreateRasterizerState failed: %ld\n", hRes);
-        return false;
-    }
-
-    s_d3d11DeviceContext->RSSetState(s_rasterizerState);
-
-    const D3D11_RECT scissorRects[]{
-        {
-            .left = 0,
-            .top = 0,
-            .right = WINDOW_WIDTH,
-            .bottom = WINDOW_HEIGHT
-        }
-    };
-    s_d3d11DeviceContext->RSSetScissorRects((UINT)std::size(scissorRects), scissorRects);
-
-    return true;
-}
-
 static auto CreateBitmapFromSurface() -> bool
 {
     // Direct2D needs the dxgi version of the backbuffer surface pointer.
@@ -316,7 +308,51 @@ static auto CreateBitmapFromSurface() -> bool
     return true;
 }
 
-static auto CreateSolidBrush() -> bool
+static auto CreateCustomEffect() -> bool
+{
+    const D2D1_PROPERTY_BINDING propertyBindings[] = {
+        {
+            .propertyName = L"Intensity",
+            .setFunction = &MyPixelShaderSetPropertyIntensity,
+            .getFunction = &MyPixelShaderGetPropertyIntensity
+        }
+    };
+
+    HRESULT hRes = s_d2d1Factory->RegisterEffectFromString(CLSID_MyPixelShaderEffect,
+                                                            L"<?xml version='1.0'?>"
+                                                            L"<Effect xmlns='http://schemas.microsoft.com/DirectX/2008/Effect'>"
+                                                                L"<Property name='DisplayName' type='string' value='MyPixelShaderEffect' />"
+                                                                L"<Property name='Author' type='string' value='Zenny Chen' />"
+                                                                L"<Property name='Category' type='string' value='Custom' />"
+                                                                L"<Property name='Description' type='string' value='A custom pixel shader effect' />"
+                                                                L"<Property name='Intensity' type='float'>"
+                                                                    L"<Property name='DisplayName' type='string' value='Effect Intensity' />"
+                                                                    L"<Property name='Default' type='float' value='0.5' />"
+                                                                L"</Property>"
+                                                                L"<Inputs>"
+                                                                    L"<Input name='Source' />"
+                                                                L"</Inputs>"
+                                                            L"</Effect>",
+                                                            propertyBindings,
+                                                            std::size(propertyBindings),
+                                                            &MyPixelShaderEffectFactory);
+    if (FAILED(hRes))
+    {
+        fprintf(stderr, "RegisterEffectFromString failed: %ld\n", hRes);
+        return false;
+    }
+
+    hRes = s_d2d1Context->CreateEffect(CLSID_MyPixelShaderEffect, &s_myPixelShaderEffect);
+    if (FAILED(hRes))
+    {
+        fprintf(stderr, "CreateEffect for MyPixelShaderEffect failed: %ld\n", hRes);
+        return false;
+    }
+
+    return true;
+}
+
+static auto CreateSolidBrushAndGeometries() -> bool
 {
     HRESULT hRes = s_d2d1Context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &s_solidColorBrush);
     if (FAILED(hRes))
@@ -325,7 +361,36 @@ static auto CreateSolidBrush() -> bool
         return false;
     }
 
-    return true;
+    hRes = s_d2d1Factory->CreatePathGeometry(&s_pathTriangle);
+    if (FAILED(hRes))
+    {
+        fprintf(stderr, "CreatePathGeometry for the triangle failed: %ld\n", hRes);
+        return false;
+    }
+
+    // Use a triangle path to construct the triangle geometry
+    ID2D1GeometrySink* triangleSink = nullptr;
+    hRes = s_pathTriangle->Open(&triangleSink);
+    if (FAILED(hRes))
+    {
+        fprintf(stderr, "Open triangleSink with s_pathTriangle failed: %ld\n", hRes);
+        return false;
+    }
+
+    // Begin figure and add lines
+    triangleSink->BeginFigure(D2D1::Point2F(0.7070f * float(WINDOW_WIDTH), 0.39f * float(WINDOW_HEIGHT)), D2D1_FIGURE_BEGIN_FILLED);    // top center
+    triangleSink->AddLine(D2D1::Point2F(0.512f * float(WINDOW_WIDTH), 0.78125f * float(WINDOW_HEIGHT)));                                // bottom left
+    triangleSink->AddLine(D2D1::Point2F(0.902f * float(WINDOW_WIDTH), 0.78125f * float(WINDOW_HEIGHT)));                                // bottom right
+    triangleSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+
+    hRes = triangleSink->Close();
+    if (FAILED(hRes)) {
+        fprintf(stderr, "Close triangleSink failed: %ld\n", hRes);
+    }
+
+    triangleSink->Release();
+
+    return SUCCEEDED(hRes);
 }
 
 static auto DrawGraphics() -> void
@@ -334,11 +399,20 @@ static auto DrawGraphics() -> void
 
     s_d2d1Context->BeginDraw();
 
+    // Fill and draw a rectangle
     s_solidColorBrush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
     s_d2d1Context->FillRectangle(D2D1::RectF(0.0f, 0.0f, float(WINDOW_WIDTH), float(WINDOW_HEIGHT)), s_solidColorBrush);
 
     s_solidColorBrush->SetColor(D2D1::ColorF(0.9f, 0.1f, 0.1f, 1.0f));
-    s_d2d1Context->DrawRectangle(D2D1::RectF(50.0f, 50.0f, 250.0f, 250.0f), s_solidColorBrush);
+    s_d2d1Context->DrawRectangle(D2D1::RectF(0.0975f * float(WINDOW_WIDTH), 0.0975f * float(WINDOW_HEIGHT), 0.488f * float(WINDOW_WIDTH), 0.488f * float(WINDOW_HEIGHT)),
+                                s_solidColorBrush);
+
+    // Fill and draw a triangle
+    s_solidColorBrush->SetColor(D2D1::ColorF(D2D1::ColorF::WhiteSmoke));
+    s_d2d1Context->FillGeometry(s_pathTriangle, s_solidColorBrush);
+
+    s_solidColorBrush->SetColor(D2D1::ColorF(0.9f, 0.75f, 0.1f, 1.0f));
+    s_d2d1Context->DrawGeometry(s_pathTriangle, s_solidColorBrush);
 
     HRESULT hRes = s_d2d1Context->EndDraw();
     if (FAILED(hRes))
@@ -363,6 +437,11 @@ static auto DrawGraphics() -> void
 
 static auto DestroyAllResources() -> void
 {
+    if(s_pathTriangle != nullptr)
+    {
+        s_pathTriangle->Release();
+        s_pathTriangle = nullptr;
+    }
     if (s_solidColorBrush != nullptr)
     {
         s_solidColorBrush->Release();
@@ -377,6 +456,11 @@ static auto DestroyAllResources() -> void
     {
         s_d2dTargetBitmap->Release();
         s_d2dTargetBitmap = nullptr;
+    }
+    if(s_myPixelShaderEffect != nullptr)
+    {
+        s_myPixelShaderEffect->Release();
+        s_myPixelShaderEffect = nullptr;
     }
     if (s_rasterizerState != nullptr)
     {
@@ -418,10 +502,10 @@ static auto DestroyAllResources() -> void
         s_d2d1Device->Release();
         s_d2d1Device = nullptr;
     }
-    if (s_d2dFactory != nullptr)
+    if (s_d2d1Factory != nullptr)
     {
-        s_d2dFactory->Release();
-        s_d2dFactory = nullptr;
+        s_d2d1Factory->Release();
+        s_d2d1Factory = nullptr;
     }
 }
 
@@ -578,9 +662,9 @@ auto main() -> int
         wndHandle = CreateAndInitializeWindow(wndInstance, "Direct2D Collection", WINDOW_WIDTH, WINDOW_HEIGHT);
 
         if (!CreateSwapChain(wndHandle)) break;
-        if (!CreateRasterizerStateObject()) break;
+        if (!CreateCustomEffect()) break;
         if (!CreateBitmapFromSurface()) break;
-        if (!CreateSolidBrush()) break;
+        if (!CreateSolidBrushAndGeometries()) break;
 
         needRender = true;
     }
